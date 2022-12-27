@@ -1,0 +1,241 @@
+/* =====================================================================
+ * Project:      Traffic generator
+ * Title:        traffic_gen.sv
+ * Description:  Top module of traffic generator.
+ *
+ * $Date:        16.2.2022
+ *
+ * ===================================================================== */
+/*
+ * Copyright (C) 2022 University of Modena and Reggio Emilia.
+ *
+ * Author: Gianluca Bellocchi, University of Modena and Reggio Emilia.
+ *
+ */
+
+module my_conway_design #(
+  parameter int unsigned WORD_WIDTH = 32
+) (
+  // global signals
+  input  logic                                      ap_clk,
+  input  logic                                      ap_rst_n,
+
+  // input a stream
+  input logic                                       r_reqs_TVALID,
+  output logic                                      r_reqs_TREADY,
+  input logic [WORD_WIDTH-1:0]                      r_reqs_TDATA,
+  // hwpe_stream_intf_stream.sink                      r_reqs,
+
+  // output d stream
+  output logic                                      w_reqs_TVALID,
+  input logic                                       w_reqs_TREADY,
+  output logic [WORD_WIDTH-1:0]                     w_reqs_TDATA,
+  // hwpe_stream_intf_stream.source                    w_reqs,
+
+  // control channel (custom registers)
+  input logic unsigned [WORD_WIDTH-1:0]             n_total_reqs,
+  input logic unsigned [WORD_WIDTH-1:0]             t_ck_reqs,
+  //input logic unsigned [WORD_WIDTH-1:0]             t_ck_idle,
+
+  // Control signals
+  input logic                                       ap_start,
+  output logic                                      ap_done,
+  //output logic                                      ap_idle,
+  output logic                                      ap_ready
+
+  // input  ctrl_engine_t                              ctrl_i, 
+  // output flags_engine_t                             flags_o
+);
+  logic unsigned [3-1:0]conway_en;
+
+  logic [WORD_WIDTH-1:0] r_out;
+  logic r_out_valid;
+  logic r_out_ready;
+
+  logic [WORD_WIDTH-1:0] r_in;
+  logic r_in_valid;
+  logic r_in_ready;
+
+  logic unsigned [WORD_WIDTH-1:0] read_r_cnt, read_cnt;
+  logic unsigned [WORD_WIDTH-1:0] write_r_cnt, write_cnt;
+
+  logic issue_last_idle, last_idle, last_r_idle;
+  logic stream_idle, stream_r_idle;
+  logic [WORD_WIDTH-1:0] count_idle;
+
+  logic acc_done, r_acc_done;
+
+  logic unsigned [WORD_WIDTH-1:0] local_n_reqs;
+  logic unsigned [WORD_WIDTH-1:0] local_t_reqs;
+  logic unsigned [WORD_WIDTH-1:0] local_t_idle;
+
+  conway #(32,3)                     //VHDL component name and generic parameter mapping
+  conway_0(ap_clk,conway_en,r_reqs_TDATA,w_reqs_TDATA);  //instance name and port mapping for first signal
+
+  ////////////////////////////////////////////////////////////////////////////////////////////
+
+  // TODO:
+  // - The control routine of the traffic generator can be re-designed in a more elegant way using a FSM.
+
+  ////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+  ////////////////////////////////////////////////////////////////////////////////////////////
+
+  // Burst counter
+ always_ff @(posedge ap_clk or negedge ap_rst_n)
+ begin
+   if(~ap_rst_n || r_acc_done) begin // reset counter
+        read_r_cnt <= '0;
+        write_r_cnt <= '0; 
+        //r_out <= '0;
+        r_out_valid <= '0;
+   end
+  //  idle is not null
+    else if (ap_start & (r_reqs_TVALID & r_reqs_TREADY=='1)) begin //count up every time a request is handled successfully
+    read_r_cnt <= read_cnt;
+    end
+    else if(ap_start) begin
+      if ((write_r_cnt < local_n_reqs) && (w_reqs_TVALID & w_reqs_TREADY == 1'b1)) begin
+        write_r_cnt <= write_cnt; //
+      end
+    end
+    else begin
+        read_r_cnt <= '0; //for protection? probly reducable
+        write_r_cnt <= '0;
+    end
+ end
+
+  // Drive stream idle signal
+    //REMOVED    
+
+  ////////////////////////////////////////////////////////////////////////////////////////////
+
+  // Count read / write transactions //increment counters through intermediates..
+  always_comb
+  begin
+    read_cnt = read_r_cnt + 1;
+    write_cnt = write_r_cnt + 1; 
+  end
+
+  ////////////////////////////////////////////////////////////////////////////////////////////
+    //Drive Custom Done
+    always_comb
+    begin
+        if (read_r_cnt == local_n_reqs) begin
+            acc_done = '1;
+        end
+        else begin
+            acc_done = '0;
+        end
+    end
+//Drive conway EN
+    always_comb
+    begin
+        if (r_reqs_TREADY == '0 ) begin
+            conway_en = '0;
+        end
+        else begin
+            conway_en = '1 << (read_r_cnt % 3); //cycle enables of registers as data flow in
+        end
+    end
+
+
+  assign ap_done = acc_done;
+
+
+  ////////////////////////////////////////////////////////////////////////////////////////////
+
+  ////////////////////////////////////////////////////////////////////////////////////////////
+
+  // < DRIVE INPUT READS / OUTPUT WRITES>
+
+  always_comb
+  begin
+    r_reqs_TREADY = ap_start & ~acc_done;//~(stream_r_idle | last_r_idle); 
+   // w_reqs_TDATA  = ~r_out; //Accelerator Function
+    w_reqs_TVALID = (r_out_valid) | '0; 
+  end
+
+
+  // r_out is valid following a valid handshake
+  always_ff @(posedge ap_clk or negedge ap_rst_n)
+  begin
+    if(ap_rst_n) begin
+      r_out_valid <= '1;
+    end
+  end
+
+  assign r_out_ready = w_reqs_TREADY;
+  assign r_out = r_reqs_TDATA; //inversion
+  ////////////////////////////////////////////////////////////////////////////////////////////
+
+  // The following assertions help in getting the rules on ready & valid right.
+  // They are copied from the general stream rules in hwpe_stream_interfaces.sv
+  // and adapted to the internal and interface streaming signals.
+  `ifndef SYNTHESIS
+  `ifndef VERILATOR
+
+    // r_reqs (interface)
+    property r_reqs_change_rule;
+      @(posedge ap_clk)
+      //if    request valit and 
+      ($past(r_reqs_TVALID) & ~($past(r_reqs_TVALID) & $past(r_reqs_TREADY))) |-> (r_reqs_TDATA == $past(r_reqs_TDATA));
+    endproperty;
+    
+    property r_reqs_valid_deassert_rule;
+      @(posedge ap_clk)
+      ($past(r_reqs_TVALID) & ~r_reqs_TVALID) |-> $past(r_reqs_TVALID) & $past(r_reqs_TREADY);
+    endproperty;
+
+    // r_out (internal)
+    property r_out_change_rule;
+      @(posedge ap_clk)
+      ($past(r_out_valid) & ~($past(r_out_valid) & $past(r_out_ready))) |-> (r_out == $past(r_out));
+    endproperty;
+
+    property r_out_valid_deassert_rule;
+      @(posedge ap_clk)
+      ($past(r_out_valid) & ~r_out_valid) |-> $past(r_out_valid) & $past(r_out_ready);
+    endproperty;
+
+    // w_reqs (interface)
+    property w_reqs_change_rule;
+      @(posedge ap_clk)
+      ($past(w_reqs_TVALID) & ~($past(w_reqs_TVALID) & $past(w_reqs_TREADY))) |-> (w_reqs_TDATA == $past(w_reqs_TDATA));
+    endproperty;
+    
+    property w_reqs_valid_deassert_rule;
+      @(posedge ap_clk)
+      ($past(w_reqs_TVALID) & ~w_reqs_TVALID) |-> $past(w_reqs_TVALID) & $past(w_reqs_TREADY);
+    endproperty;
+
+    // rule instances
+/*
+    R_REQS_VALUE_CHANGE:    assert property(r_reqs_change_rule)
+      else $fatal("ASSERTION FAILURE: R_REQS_VALUE_CHANGE", 1);
+
+    R_REQS_VALID_DEASSERT:  assert property(r_reqs_valid_deassert_rule)
+      else $fatal("ASSERTION FAILURE R_REQS_VALID_DEASSERT", 1);
+
+    R_OUT_VALUE_CHANGE:    assert property(r_out_change_rule)
+      else $fatal("ASSERTION FAILURE: R_OUT_VALUE_CHANGE", 1);
+
+    R_OUT_VALID_DEASSERT:  assert property(r_out_valid_deassert_rule)
+      else $fatal("ASSERTION FAILURE R_OUT_VALID_DEASSERT", 1);
+
+    W_REQS_VALUE_CHANGE:    assert property(w_reqs_change_rule)
+      else $fatal("ASSERTION FAILURE: W_REQS_VALUE_CHANGE", 1);
+
+    W_REQS_VALID_DEASSERT:  assert property(w_reqs_valid_deassert_rule)
+      else $fatal("ASSERTION FAILURE W_REQS_VALID_DEASSERT", 1);
+
+    // R_ACC_DONE_STILL_VALUES:  assert property(r_acc_done_rule)
+    //   else $fatal("ASSERTION FAILURE R_ACC_DONE_STILL_VALUES", 1);
+*/
+  `endif /* VERILATOR */
+  `endif /* SYNTHESIS */
+
+endmodule // traffic_gen
+
