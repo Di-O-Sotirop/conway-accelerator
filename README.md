@@ -4,8 +4,11 @@ Simple computing kernel for coway's game of life to be ported to Accelerator Ric
                       Module Hierarchy
 
 Top level:      conway_top.sv -> (onway_hwpe_tb.vhd)
+
 Designe Level:  conway.vhd
+
 Module level: conway_adder.vhd, conway_line_block.vhd
+
 Component :                           dff.vhd   
              
 
