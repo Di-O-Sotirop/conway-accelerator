@@ -24,7 +24,7 @@ A Conway engine (conway_adder.vhd) is a simple processor for calculating the nex
 and outputs a bit (1: alive, 0: dead) as the next state of the middle cell of the neighbourhood.
 The design loads 1 32bit word each cycle and stores it on one of the 3 input buffers. At any given moment there is a 3x32 cell area loaded in lines in the 3 input buffers.
 On each cycle the area is fed to the conway engines to produce the next state of the middle 30 cells of the area. 
-On each next cycle the top line of the area is flooded from a buffer and replaced with the next one implementing a downard moving window of a 32 cell width.
+On each next cycle the top line of the area is flushed from a buffer and replaced with the next one implementing a downard moving window of a 32 cell width.
 This cycling of inputs is controlled by a module hadling the enable signals of the buffers: only 1 buffer is enabled at each cc. 
 These enable signals also handle which of the buffers holds the middle cell.
 
