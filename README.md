@@ -12,7 +12,10 @@ Simple computing kernel for coway's game of life to be ported to Accelerator Ric
   conway_adder.vhd      conway_line_block.vhd
                                |
                                dff.vhd
-                               
+             
+             
+         
+ Design Schematic:
                                
 ![conway_design_02 drawio](https://user-images.githubusercontent.com/115657455/210360671-9d6381f0-e6a5-43bd-8217-7589bcad6022.png)
 
