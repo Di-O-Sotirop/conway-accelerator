@@ -6,12 +6,12 @@ Simple computing kernel for coway's game of life to be ported to Accelerator Ric
            conway_top.sv -> [conway_hwpe_tb.vhd]  
                  |                                
            conway.vhd                             
-             |     |                                
-       o-----o     o----------o                   
+             |     |                                                 
        |                      |                   
  conway_adder.vhd      conway_line_block.vhd      
                               |                   
-                            dff.vhd               
+                            dff.vhd   
+             
 
              
          
